@@ -555,7 +555,7 @@ router.post(
                 //move the file over to workdir
                 mkdirp.sync(destdir);
                 fs.renameSync(srcPath, destPath);
-                if (mtime) fs.utimesSync(destPath, mtime, mtime);
+                //if (mtime) fs.utimesSync(destPath, mtime, mtime); // <---- Is this needed?
                 return nextFile();
             },
             (err) => {
