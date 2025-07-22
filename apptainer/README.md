@@ -4,15 +4,11 @@ This guide provides steps to convert Docker containers into Apptainer images and
 
 ## Converting Docker to Apptainer
 
-### Step 1: Build and Stop Docker Containers
-Run the following command to build and start the Docker containers:
+### Step 1: Build Docker Containers
+Run the following command to build the Docker containers:
 ```sh
-docker-compose up --build
-```
-
-If the containers are running, stop them with:
-```sh
-docker-compose down
+cd ..
+./build.sh
 ```
 
 ### Step 2: Export Docker Images
