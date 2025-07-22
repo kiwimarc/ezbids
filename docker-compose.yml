@@ -25,19 +25,22 @@ services:
         build: .
         platform: linux/amd64
         volumes:
-            - ./api:/app/api
-            - /tmp:/tmp
+            - ${EZBIDS_TMP_DIR:-/tmp/ezbids-workdir/}:/tmp
         depends_on:
             mongodb:
                 condition: service_healthy
         healthcheck:
             test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+            interval: 10s
+            timeout: 10s
+            retries: 5
+            start_period: 30s
         working_dir: /app/api
         command:
             ./dev.sh
         environment:
             MONGO_CONNECTION_STRING: mongodb://mongodb:27017/ezbids
-            BRAINLIFE_AUTHENTICATION: ${BRAINLIFE_AUTHENTICATION}
+            BRAINLIFE_AUTHENTICATION: ${BRAINLIFE_AUTHENTICATION:-false}
         ports:
             - 8082:8082 #localhost runs on local browser to it needs to access api via host port
         networks:
@@ -45,11 +48,12 @@ services:
 
     handler:
         container_name: brainlife_ezbids-handler
-        build: ./handler
+        build:
+            context: .
+            dockerfile: handler/Dockerfile
         platform: linux/amd64
         volumes:
-            - .:/app
-            - /tmp:/tmp
+            - ${EZBIDS_TMP_DIR:-/tmp/ezbids-workdir}:/tmp
         depends_on:
             mongodb:
                 condition: service_healthy
@@ -57,24 +61,29 @@ services:
                 condition: service_healthy
         environment:
             MONGO_CONNECTION_STRING: mongodb://mongodb:27017/ezbids
+            PRESORT: ${PRESORT:-false}
         networks:
             - ezbids
         tty: true #turn on color for bids-validator output
-        command: pm2 start handler.js --attach --watch --ignore-watch "ui **/node_modules"
+        command: pm2 start handler.js --attach --watch --ignore-watch "ui **/node_modules **__pycache__**"
 
     ui:
         container_name: brainlife_ezbids-ui
-        env_file:
-            - .env
         build: ./ui
         platform: linux/amd64
-        volumes:
-            - ./ui/src:/ui/src #don't copy node_modules which might be compiled for mac (vite won't work)
         environment:
-            VITE_APIHOST: http://localhost:8082
-            VITE_BRAINLIFE_AUTHENTICATION: ${BRAINLIFE_AUTHENTICATION}
+            VITE_APIHOST: http://${SERVER_NAME:-localhost}:8082
+            VITE_BRAINLIFE_AUTHENTICATION: ${BRAINLIFE_AUTHENTICATION:-false}
+        depends_on:
+            - api
+            - mongodb
+            - handler
         healthcheck:
             test: ["CMD", "curl", "-f", "http://localhost:3000"]
+            interval: 10s
+            timeout: 10s
+            retries: 5
+            start_period: 30s
         ports:
             - 3000:3000 #vite wants to be exposed on the host for HMR?
         networks:

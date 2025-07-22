@@ -1,0 +1,74 @@
+name: Docker Build (Nginx)
+
+on:
+  workflow_run:
+    workflows: ["Docker Build (Local)"]
+    types:
+      - completed
+  push:
+    branches: [ '*' ]
+  pull_request:
+    branches: [ '*' ]
+  workflow_dispatch:
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+  COMPOSE_FILE: ./docker-compose-nginx.yml
+  REGISTRY_PREFIX: docker.io/library
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set repository name
+        id: repo
+        run: echo "REPO_NAME=$(basename $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+
+      - name: Cache Docker images
+        uses: actions/cache@v4
+        id: docker-cache
+        with:
+          path: |
+            mongo.tar
+            api.tar
+            handler.tar
+          key: docker-local-images-${{ github.sha }}
+          restore-keys: |
+            docker-local-images-
+
+      - name: Load cached images
+        if: steps.docker-cache.outputs.cache-hit == 'true'
+        run: |
+          # Load images and verify they were loaded successfully
+          docker load < mongo.tar || exit 1
+          rm mongo.tar
+          docker load < api.tar || exit 1
+          rm api.tar
+          docker load < handler.tar || exit 1
+          rm handler.tar
+
+      - name: Build UI with nginx
+        run: docker compose -f ${{ env.COMPOSE_FILE }} build ui
+
+      - name: Pull nginx image
+        run: docker compose -f ${{ env.COMPOSE_FILE }} pull nginx
+
+      - name: Save images
+        run: |
+          # Save all ui and nginx images to tar files
+          docker save ${REGISTRY_PREFIX}/${REPO_NAME}-ui:latest > ui-nginx.tar
+          docker save nginx > nginx.tar
+
+      - name: Cache Nginx images
+        uses: actions/cache@v4
+        id: nginx-cache
+        with:
+          path: |
+            ui-nginx.tar
+            nginx.tar
+          key: docker-nginx-images-${{ github.sha }}
+          restore-keys: |
+            docker-nginx-images-

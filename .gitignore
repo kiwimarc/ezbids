@@ -43,3 +43,8 @@ nginx/ssl/*
 # apptainer tmp dir
 tmp/
 
+*__pycache__*
+
+# Ignore test data submodules contents but not the submodule tracking
+test/test_data/*/
+!test/test_data/.gitkeep
