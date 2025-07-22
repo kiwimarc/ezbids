@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
-
-mongod --dbpath /data/
+source .env
+mongod --dbpath /data/ --nounixsocket

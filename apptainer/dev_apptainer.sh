@@ -31,32 +31,33 @@ for dir in "${required_dirs[@]}"; do
 done
 
 # Parse arguments for authentication flag
-BRAINLIFE_AUTHENTICATION=true
-while getopts "d" flag; do
- case $flag in
-   d)
-     BRAINLIFE_AUTHENTICATION=false
-   ;;
-   \?)
-   ;;
- esac
-done
+#BRAINLIFE_AUTHENTICATION=true
+#while getopts "d" flag; do
+# case $flag in
+#   d)
+#     BRAINLIFE_AUTHENTICATION=false
+#   ;;
+#   \?)
+#   ;;
+# esac
+#done
 
-export BRAINLIFE_AUTHENTICATION
+#export BRAINLIFE_AUTHENTICATION
 
 # Check Node.js version
-REQUIRED_NODE_VERSION="16"
-CURRENT_NODE_VERSION=$(node -v | cut -d '.' -f 1 | sed 's/v//')
+#REQUIRED_NODE_VERSION="16"
+#CURRENT_NODE_VERSION=$(node -v | cut -d '.' -f 1 | sed 's/v//')
 
-if [ "$CURRENT_NODE_VERSION" -ne "$REQUIRED_NODE_VERSION" ]; then
-    echo "Warning: You are using Node.js version $CURRENT_NODE_VERSION. It is recommended to use version $REQUIRED_NODE_VERSION."
-    echo "Please switch to Node.js version $REQUIRED_NODE_VERSION."
-fi
+#if [ "$CURRENT_NODE_VERSION" -ne "$REQUIRED_NODE_VERSION" ]; then
+#    echo "Warning: You are using Node.js version $CURRENT_NODE_VERSION. It is recommended to use version $REQUIRED_NODE_VERSION."
+#    echo "Please switch to Node.js version $REQUIRED_NODE_VERSION."
+#fi
 
 # Update git submodules
-git submodule update --init --recursive
+#git submodule update --init --recursive
 
 # Install dependencies for api and ui
+npm install npm@9.5.1 pm2 typescript tsc-watch
 (cd api && npm install)
 (cd ui && npm install)
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-
-cd ..
-cd ui/
-npm run dev
+set -x
+source .env
+cd ../ui
+./entrypoint.sh
+#npm --prefix ./ui run dev
