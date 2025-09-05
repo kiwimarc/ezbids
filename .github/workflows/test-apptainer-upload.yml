@@ -1,0 +1,30 @@
+name: Test Apptainer upload
+
+on:
+  push:
+    branches:
+      - openneuropet_apptainer
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run apptainer scripts
+        run: |
+          set -e
+          bash apptainer/create_sif_images.sh
+          bash apptainer/run_apptainer.sh
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Verify uv installation
+        run: uv --version
+
+      - name: Run upload test
+        run: make test-upload
