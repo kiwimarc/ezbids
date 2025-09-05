@@ -18,7 +18,7 @@ fi
 # Check MongoDB readiness
 wait_for_mongodb() {
     sleep 5
-    for i in {1..10}; do
+    for i in {1..100}; do
         if apptainer exec instance://mongodb bash -c "echo 'db.runCommand(\"ping\").ok' | mongo localhost:27017/test --quiet" | grep -q 1; then
             echo "MongoDB is ready."
             return
@@ -33,7 +33,7 @@ wait_for_mongodb() {
 # Check API readiness
 wait_for_api() {
     sleep 90
-    for i in {1..10}; do
+    for i in {1..100}; do
         if curl -fs http://localhost:8082/health >/dev/null; then
             echo "API is ready."
             return
@@ -50,7 +50,7 @@ wait_for_api() {
 # Check UI readiness
 wait_for_ui() {
     sleep 5
-    for i in {1..10}; do
+    for i in {1..100}; do
         if curl -fs http://localhost:3000 >/dev/null; then
             echo "UI is ready."
             return
