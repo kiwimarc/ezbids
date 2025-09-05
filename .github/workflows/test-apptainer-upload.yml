@@ -98,7 +98,10 @@ jobs:
       - name: Set up environment
         run: |
           set -a
-          [ -f ./apptainer/.env ] && source ./apptainer/.env
+          source ./apptainer/.env
+          echo "---- Loaded Environment Variables ----"
+          env | sort
+          echo "-------------------------------------"
           set +a
 
       - name: Start MongoDB in Apptainer
