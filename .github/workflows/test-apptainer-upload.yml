@@ -31,6 +31,8 @@ jobs:
                echo "Added SERVER_NAME=localhost to .env"
           fi
 
+          echo "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" >> ./apptainer/.env
+
           # check if required dir exists
           required_dirs=("tmp" "tmp/data" "tmp/ezbids-workdir" "tmp/upload" "tmp/workdir")
           for dir in "${required_dirs[@]}"; do
