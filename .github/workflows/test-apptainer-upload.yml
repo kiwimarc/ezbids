@@ -56,6 +56,12 @@ jobs:
           # apptainer build telemetry.sif docker-archive:telemetry_image.tar
         working-directory: ./apptainer
 
+      - name: Run dev_apptainer.sh setup
+        run: |
+          set -e
+          chmod +x ./apptainer/dev_apptainer.sh
+          ./apptainer/dev_apptainer.sh
+
       - name: Set up environment
         run: |
           set -a
