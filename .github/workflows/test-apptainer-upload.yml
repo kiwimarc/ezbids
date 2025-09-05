@@ -13,6 +13,43 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Project environment preparation (mimic dev_apptainer.sh)
+        run: |
+          set -ex
+          cd ..
+          # check to see if a .env file exists
+          if [ -f apptainer/.env ]; then
+              echo ".env file exists, loading environment variables from .env file"
+          else
+              echo ".env file does not exist, copying example.env to .env"
+              cp example.env apptainer/.env
+          fi
+
+          # Ensure SERVER_NAME=localhost exists in .env
+          if ! grep -q "^SERVER_NAME=" apptainer/.env; then
+               echo "SERVER_NAME=localhost" >> apptainer/.env
+               echo "Added SERVER_NAME=localhost to .env"
+          fi
+
+          # check if required dir exists
+          required_dirs=("tmp" "tmp/data" "tmp/ezbids-workdir" "tmp/upload" "tmp/workdir")
+          for dir in "${required_dirs[@]}"; do
+              if [ ! -d "$dir" ]; then
+                  echo "Creating: $dir"
+                  mkdir -p "$dir"
+              fi
+          done
+
+          # Install dependencies for api and ui
+          npm install npm@9.5.1 pm2 typescript tsc-watch
+          (cd api && npm install)
+          (cd ui && npm install)
+
+          # Generate keys (assuming this is a necessary setup step)
+          ./generate_keys.sh
+        shell: bash
+        working-directory: ./apptainer
+
       - name: Install Apptainer from PPA
         run: |
           sudo apt update
@@ -55,12 +92,6 @@ jobs:
           apptainer build ui.sif docker-archive:ui_image.tar
           # apptainer build telemetry.sif docker-archive:telemetry_image.tar
         working-directory: ./apptainer
-
-      - name: Run dev_apptainer.sh setup
-        run: |
-          set -e
-          chmod +x ./apptainer/dev_apptainer.sh
-          ./apptainer/dev_apptainer.sh
 
       - name: Set up environment
         run: |
