@@ -13,11 +13,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Apptainer (Unprivileged)
+      - name: Install Apptainer from PPA
         run: |
-          curl -s https://raw.githubusercontent.com/apptainer/apptainer/main/tools/install-unprivileged.sh | \
-            bash -s - install-dir
-          echo "$GITHUB_WORKSPACE/install-dir/bin" >> $GITHUB_PATH
+          sudo apt update
+          sudo apt install -y software-properties-common
+          sudo add-apt-repository -y ppa:apptainer/ppa
+          sudo apt update
+          sudo apt install -y apptainer
 
       - name: Install uv
         run: |
