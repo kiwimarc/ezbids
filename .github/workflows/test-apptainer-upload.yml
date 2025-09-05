@@ -25,7 +25,12 @@ jobs:
           docker save -o ui_image.tar ezbids-ui
           # docker save -o telemetry_image.tar ezbids-telemetry
         working-directory: ./apptainer
-
+        
+      - name: Show Apptainer version
+        run: |
+          apptainer --version || singularity --version || echo "Apptainer/Singularity not found"
+        working-directory: ./apptainer
+        
       - name: Run Apptainer
         run: |
           set -e
