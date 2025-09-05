@@ -88,8 +88,8 @@ jobs:
         run: |
           set -e
           apptainer exec --env "PM2_HOME=$HOME/.api" api.sif ./start_api.sh > api.log 2>&1 &
-          for i in {1..20}; do
-            if curl -fs http://localhost:8082/health >/dev/null; then
+          for i in {1..100}; do
+            if curl -fs http://localhost:8082/health; then
               echo "API is ready."
               exit 0
             fi
@@ -111,7 +111,7 @@ jobs:
         run: |
           set -e
           apptainer exec ui.sif bash -c "./start_ui.sh &"
-          for i in {1..20}; do
+          for i in {1..100}; do
             if curl -fs http://localhost:3000 >/dev/null; then
               echo "UI is ready."
               exit 0
