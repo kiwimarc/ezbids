@@ -23,7 +23,7 @@ jobs:
           docker save -o api_image.tar ezbids-api
           docker save -o handler_image.tar ezbids-handler
           docker save -o ui_image.tar ezbids-ui
-          docker save -o telemetry_image.tar ezbids-telemetry
+          # docker save -o telemetry_image.tar ezbids-telemetry
         working-directory: ./apptainer
 
       - name: Run Apptainer
