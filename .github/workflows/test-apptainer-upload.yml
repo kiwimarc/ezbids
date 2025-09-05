@@ -8,6 +8,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -17,6 +18,11 @@ jobs:
           curl -s https://raw.githubusercontent.com/apptainer/apptainer/main/tools/install-unprivileged.sh | \
             bash -s - install-dir
           echo "$GITHUB_WORKSPACE/install-dir/bin" >> $GITHUB_PATH
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Build container images
         run: |
@@ -29,27 +35,92 @@ jobs:
           docker save -o api_image.tar ezbids-api
           docker save -o handler_image.tar ezbids-handler
           docker save -o ui_image.tar ezbids-ui
-          # docker save -o telemetry_image.tar ezbids-telemetry
+          docker save -o telemetry_image.tar ezbids-telemetry
         working-directory: ./apptainer
-        
-      - name: Show Apptainer version
-        run: |
-          apptainer --version || singularity --version || echo "Apptainer/Singularity not found"
-        working-directory: ./apptainer
-        
-      - name: Run Apptainer
+
+      - name: Convert Docker images to SIF
         run: |
           set -e
-          bash run_apptainer.sh
+          apptainer build api.sif docker-archive:api_image.tar
+          apptainer build handler.sif docker-archive:handler_image.tar
+          apptainer build ui.sif docker-archive:ui_image.tar
+          apptainer build telemetry.sif docker-archive:telemetry_image.tar
         working-directory: ./apptainer
 
-      - name: Install uv
+      - name: Set up environment
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          set -a
+          [ -f ./apptainer/.env ] && source ./apptainer/.env
+          set +a
 
-      - name: Verify uv installation
-        run: uv --version
+      - name: Start MongoDB in Apptainer
+        run: |
+          set -e
+          # Build if missing
+          if [ ! -e "mongodb.sif" ]; then
+            apptainer build mongodb.sif docker://mongo:4.4.15
+          fi
+          # Start MongoDB in background
+          apptainer exec mongodb.sif bash -c "mongod --dbpath /data/db --bind_ip_all" > mongo.log 2>&1 &
+          # Wait for MongoDB to be ready
+          for i in {1..20}; do
+            if apptainer exec mongodb.sif bash -c "echo 'db.runCommand(\"ping\").ok' | mongo localhost:27017/test --quiet" | grep -q 1; then
+              echo "MongoDB is ready."
+              exit 0
+            fi
+            echo "MongoDB not ready, retrying in 5s..."
+            sleep 5
+          done
+          echo "MongoDB failed health check."
+          exit 1
+        working-directory: ./apptainer
+
+      - name: Start API in Apptainer
+        run: |
+          set -e
+          apptainer exec --env "PM2_HOME=$HOME/.api" api.sif ./start_api.sh > api.log 2>&1 &
+          for i in {1..20}; do
+            if curl -fs http://localhost:8082/health >/dev/null; then
+              echo "API is ready."
+              exit 0
+            fi
+            echo "API not ready, retrying in 5s..."
+            sleep 5
+          done
+          echo "API failed health check."
+          exit 1
+        working-directory: ./apptainer
+
+      - name: Start Handler in Apptainer
+        run: |
+          set -e
+          apptainer exec --env "PM2_HOME=$HOME/.handler" handler.sif ./start_handler.sh > handler.log 2>&1 &
+          sleep 10
+        working-directory: ./apptainer
+
+      - name: Start UI in Apptainer
+        run: |
+          set -e
+          apptainer exec ui.sif bash -c "./start_ui.sh &"
+          for i in {1..20}; do
+            if curl -fs http://localhost:3000 >/dev/null; then
+              echo "UI is ready."
+              exit 0
+            fi
+            echo "UI not ready, retrying in 5s..."
+            sleep 5
+          done
+          echo "UI failed health check."
+          exit 1
+        working-directory: ./apptainer
+
+      - name: Start Telemetry in Apptainer (development only)
+        if: env.PROFILE == 'development'
+        run: |
+          set -e
+          apptainer exec telemetry.sif ./start_telementry.sh > telemetry.log 2>&1 &
+          sleep 10
+        working-directory: ./apptainer
 
       - name: Run upload test
         run: make test-upload
