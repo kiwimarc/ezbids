@@ -94,9 +94,14 @@ jobs:
               exit 0
             fi
             echo "API not ready, retrying in 5s..."
+            echo "---- API log (last 40 lines) ----"
+            tail -n 40 api.log || true
+            echo "---------------------------------"
             sleep 5
           done
           echo "API failed health check."
+          echo "Final API log (last 100 lines):"
+          tail -n 100 api.log || true
           exit 1
         working-directory: ./apptainer
 
@@ -105,6 +110,8 @@ jobs:
           set -e
           apptainer exec --env "PM2_HOME=$HOME/.handler" handler.sif ./start_handler.sh > handler.log 2>&1 &
           sleep 10
+          echo "Handler log (last 40 lines):"
+          tail -n 40 handler.log || true
         working-directory: ./apptainer
 
       - name: Start UI in Apptainer
@@ -117,18 +124,15 @@ jobs:
               exit 0
             fi
             echo "UI not ready, retrying in 5s..."
+            echo "---- UI log (last 40 lines) ----"
+            tail -n 40 ui.log || true
+            echo "--------------------------------"
             sleep 5
           done
           echo "UI failed health check."
+          echo "Final UI log (last 100 lines):"
+          tail -n 100 ui.log || true
           exit 1
-        working-directory: ./apptainer
-
-      - name: Start Telemetry in Apptainer (development only)
-        if: env.PROFILE == 'development'
-        run: |
-          set -e
-          apptainer exec telemetry.sif ./start_telementry.sh > telemetry.log 2>&1 &
-          sleep 10
         working-directory: ./apptainer
 
       - name: Run upload test
