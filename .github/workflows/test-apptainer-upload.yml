@@ -12,11 +12,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run apptainer scripts
+      - name: Build container images
         run: |
           set -e
-          bash apptainer/create_sif_images.sh
-          bash apptainer/run_apptainer.sh
+          bash build.sh
+
+      - name: Export Docker images
+        run: |
+          set -e
+          docker save -o api_image.tar ezbids-api
+          docker save -o handler_image.tar ezbids-handler
+          docker save -o ui_image.tar ezbids-ui
+          docker save -o telemetry_image.tar ezbids-telemetry
+        working-directory: ./apptainer
+
+      - name: Run Apptainer
+        run: |
+          set -e
+          bash run_apptainer.sh
+        working-directory: ./apptainer
 
       - name: Install uv
         run: |
