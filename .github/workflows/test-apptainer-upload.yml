@@ -35,7 +35,7 @@ jobs:
           docker save -o api_image.tar ezbids-api
           docker save -o handler_image.tar ezbids-handler
           docker save -o ui_image.tar ezbids-ui
-          docker save -o telemetry_image.tar ezbids-telemetry
+          # docker save -o telemetry_image.tar ezbids-telemetry
         working-directory: ./apptainer
 
       - name: Convert Docker images to SIF
@@ -44,7 +44,7 @@ jobs:
           apptainer build api.sif docker-archive:api_image.tar
           apptainer build handler.sif docker-archive:handler_image.tar
           apptainer build ui.sif docker-archive:ui_image.tar
-          apptainer build telemetry.sif docker-archive:telemetry_image.tar
+          # apptainer build telemetry.sif docker-archive:telemetry_image.tar
         working-directory: ./apptainer
 
       - name: Set up environment
