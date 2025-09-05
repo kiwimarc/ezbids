@@ -129,7 +129,7 @@ jobs:
       - name: Start API in Apptainer
         run: |
           set -e
-          apptainer exec --env "PM2_HOME=$HOME/.api" api.sif ./start_api.sh > api.log 2>&1 &
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" api.sif ./start_api.sh > api.log 2>&1 &
           for i in {1..100}; do
             if curl -fs http://localhost:8082/health; then
               echo "API is ready."
