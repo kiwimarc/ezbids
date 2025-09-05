@@ -37,7 +37,14 @@ jobs:
           docker save -o ui_image.tar ezbids-ui
           # docker save -o telemetry_image.tar ezbids-telemetry
         working-directory: ./apptainer
-
+        
+      - name: Free up disk space
+        run: |
+          sudo docker system prune -af || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup || true
+          sudo apt-get clean
+          df -h
+          
       - name: Convert Docker images to SIF
         run: |
           set -e
