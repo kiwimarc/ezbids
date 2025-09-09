@@ -171,6 +171,7 @@ jobs:
           apptainer exec --bind $EZBIDS_DIR:$EZBIDS_DIR ui.sif uname -a
           apptainer exec --bind $EZBIDS_DIR:$EZBIDS_DIR ui.sif npm list esbuild
           apptainer exec --bind $EZBIDS_DIR:$EZBIDS_DIR ui.sif node -p "require('esbuild').version"
+        working-directory: ./apptainer
 
       - name: Start UI in Apptainer
         run: |
