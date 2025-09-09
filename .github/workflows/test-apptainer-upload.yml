@@ -105,7 +105,6 @@ jobs:
         run: |
           set -e
           bash build.sh
-        working-directory: ./apptainer
 
       - name: Convert Docker images to SIF (write to /mnt)
         if: steps.cache-sifs.outputs.cache-hit != 'true'
