@@ -125,7 +125,7 @@ jobs:
             apptainer build mongodb.sif docker://mongo:4.4.15
           fi
           # Start MongoDB in background
-          apptainer exec --bind $EZBIDS_DIR:$EZBIDS_DIR --bind $EZBIDS_DIR/tmp:/tmp --bind $EZBIDS_DIR/tmp/data:/data mongodb.sif bash -c "mongod --dbpath /data/db --bind_ip_all" > mongo.log 2>&1 &
+          apptainer exec --bind $EZBIDS_DIR:$EZBIDS_DIR --bind $EZBIDS_DIR/tmp:/tmp --bind $EZBIDS_DIR/tmp/data:/data mongodb.sif bash -c "mongod --dbpath /data/ --nounixsocket" > mongo.log 2>&1 &
           # Wait for MongoDB to be ready
           for i in {1..20}; do
             if apptainer exec mongodb.sif bash -c "echo 'db.runCommand(\"ping\").ok' | mongo localhost:27017/test --quiet" | grep -q 1; then
