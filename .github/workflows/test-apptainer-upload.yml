@@ -181,14 +181,6 @@ jobs:
           tail -n 40 handler.log || true
         working-directory: ./apptainer
 
-      - name: Debug UI container
-        run: |
-          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" node -v
-          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" uname -a
-          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" npm list esbuild
-          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" node -p "require('esbuild').version"
-        working-directory: ./apptainer
-
       - name: Start UI in Apptainer
         run: |
           set -e
