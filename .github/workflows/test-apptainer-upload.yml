@@ -49,6 +49,9 @@ jobs:
 
           # Generate keys (assuming this is a necessary setup step)
           ./generate_keys.sh
+
+          (cd ui && chmod +x ./entrypoint.sh && ls -l)
+
         shell: bash
         working-directory: ./apptainer
 
@@ -99,23 +102,11 @@ jobs:
         run: |
           set -a
           source ./apptainer/.env
+          echo "EZBIDS_DIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
           echo "---- Loaded Environment Variables ----"
           env | sort
           echo "-------------------------------------"
           set +a
-
-      - name: Ensure required directory structure
-        run: |
-          required_dirs=("tmp" "tmp/data" "tmp/ezbids-workdir" "tmp/upload" "tmp/workdir")
-          for dir in "${required_dirs[@]}"; do
-              if [ ! -d "$dir" ]; then
-                  echo "Creating: $dir"
-                  mkdir -p "$dir"
-              fi
-          done
-
-      - name: Set EZBIDS_DIR environment variable
-        run: echo "EZBIDS_DIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
 
       - name: Start MongoDB in Apptainer
         run: |
@@ -168,7 +159,7 @@ jobs:
       - name: Start Handler in Apptainer
         run: |
           set -e
-          apptainer exec --env "PM2_HOME=$HOME/.handler" --bind $EZBIDS_DIR:$EZBIDS_DIR --bind $EZBIDS_DIR/tmp:/tmp  handler.sif ./start_handler.sh > handler.log 2>&1 &
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind $EZBIDS_DIR:$EZBIDS_DIR --bind $EZBIDS_DIR/tmp:/tmp  handler.sif ./start_handler.sh > handler.log 2>&1 &
           sleep 10
           echo "Handler log (last 40 lines):"
           tail -n 40 handler.log || true
@@ -177,7 +168,7 @@ jobs:
       - name: Start UI in Apptainer
         run: |
           set -e
-          apptainer exec --env "VITE_APIHOST=http://$SERVER_NAME:8082" ui.sif bash -c "./start_ui.sh &"
+          apptainer exec --env "VITE_APIHOST=http://$SERVER_NAME:8082" ui.sif bash -c "./start_ui.sh > ui.log 2>&1 &"
           for i in {1..100}; do
             if curl -fs http://localhost:3000 >/dev/null; then
               echo "UI is ready."
