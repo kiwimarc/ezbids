@@ -26,7 +26,17 @@ jobs:
           sudo mkdir -p "$APPTAINER_TMPDIR" "$SIF_DIR"
           sudo chown -R $USER:$USER "$APPTAINER_TMPDIR" "$SIF_DIR"
           echo "EZBIDS_DIR=${GITHUB_WORKSPACE}" >> $GITHUB_ENV
+          
+          # check if required dir exists
+          required_dirs=("$APPTAINER_TMPDIR/data" "$APPTAINER_TMPDIR/ezbids-workdir" "$APPTAINER_TMPDIR/upload" "$APPTAINER_TMPDIR/workdir")
+          for dir in "${required_dirs[@]}"; do
+              if [ ! -d "$dir" ]; then
+                  echo "Creating: $dir"
+                  mkdir -p "$dir"
+              fi
+          done
           df -h
+          
 
       - name: Restore SIF cache
         id: cache-sifs
@@ -62,15 +72,6 @@ jobs:
           fi
 
           echo "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" >> ./apptainer/.env
-
-          # check if required dir exists
-          required_dirs=("tmp" "tmp/data" "tmp/ezbids-workdir" "tmp/upload" "tmp/workdir")
-          for dir in "${required_dirs[@]}"; do
-              if [ ! -d "$dir" ]; then
-                  echo "Creating: $dir"
-                  mkdir -p "$dir"
-              fi
-          done
 
           # Install dependencies for api and ui
           npm install npm@9.5.1 pm2 typescript tsc-watch
