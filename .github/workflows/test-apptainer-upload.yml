@@ -94,16 +94,15 @@ jobs:
           echo "Building SIFs into: $SIF_DIR"
           apptainer build "$SIF_DIR/api.sif" docker-daemon:ezbids-api:latest
           df -h
-          # Clean cache between builds to minimize peak usage
-          apptainer cache clean -a || true
+          apptainer cache clean -f || true
 
           apptainer build "$SIF_DIR/handler.sif" docker-daemon:ezbids-handler:latest
           df -h
-          apptainer cache clean -a || true
+          apptainer cache clean -f || true
 
           apptainer build "$SIF_DIR/ui.sif" docker-daemon:ezbids-ui:latest
           df -h
-          apptainer cache clean -a || true
+          apptainer cache clean -f || true
         working-directory: ./apptainer
         
       - name: Free up disk space
@@ -130,7 +129,7 @@ jobs:
           # Build if missing
           if [ ! -e "$SIF_DIR/mongodb.sif" ]; then
             apptainer build "$SIF_DIR/mongodb.sif" docker://mongo:4.4.15
-            apptainer cache clean -a || true
+            apptainer cache clean -f || true
           fi
           # Start MongoDB in background
           apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" --bind "$EZBIDS_DIR/tmp/data:/data" "$SIF_DIR/mongodb.sif" bash -c "mongod --dbpath /data/ --nounixsocket" > mongo.log 2>&1 &
@@ -150,7 +149,7 @@ jobs:
       - name: Start API in Apptainer
         run: |
           set -e
-          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/api.sif" ./start_api.sh
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/api.sif" ./start_api.sh > api.log 2>&1 &
           for i in {1..100}; do
             if curl -fs http://localhost:8082/health; then
               echo "API is ready."
@@ -176,7 +175,7 @@ jobs:
       - name: Start Handler in Apptainer
         run: |
           set -e
-          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/handler.sif" ./start_handler.sh
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/handler.sif" ./start_handler.sh > handler.log 2>&1 &
           sleep 10
           echo "Handler log (last 40 lines):"
           tail -n 40 handler.log || true
