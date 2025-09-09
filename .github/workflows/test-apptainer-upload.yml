@@ -16,6 +16,8 @@ jobs:
       SIF_DIR: /mnt/ezbids-sif
       # Useful elsewhere
       DOCKER_BUILDKIT: "1"
+      # Bump this to invalidate SIF cache manually if needed
+      SIF_CACHE_VERSION: v1
 
     steps:
       - name: Checkout code
@@ -27,6 +29,21 @@ jobs:
           sudo chown -R $USER:$USER "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR" "$SIF_DIR"
           echo "EZBIDS_DIR=${GITHUB_WORKSPACE}" >> $GITHUB_ENV
           df -h
+
+      - name: Restore SIF cache
+        id: cache-sifs
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SIF_DIR }}
+          key: sif-${{ env.SIF_CACHE_VERSION }}-${{ runner.os }}-${{ hashFiles('apptainer/build.sh', 'apptainer/**/Dockerfile', 'apptainer/*.def', 'api/package.json', 'api/package-lock.json', 'ui/package.json', 'ui/package-lock.json') }}
+          restore-keys: |
+            sif-${{ env.SIF_CACHE_VERSION }}-${{ runner.os }}-
+            sif-${{ runner.os }}-
+
+      - name: Report SIF cache status
+        run: |
+          echo "Cache hit: ${{ steps.cache-sifs.outputs.cache-hit }}"
+          ls -lah "$SIF_DIR" || true
 
       - name: Project environment preparation (mimic dev_apptainer.sh)
         run: |
@@ -84,11 +101,14 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Build container images
+        if: steps.cache-sifs.outputs.cache-hit != 'true'
         run: |
           set -e
           bash build.sh
+        working-directory: ./apptainer
 
       - name: Convert Docker images to SIF (write to /mnt)
+        if: steps.cache-sifs.outputs.cache-hit != 'true'
         run: |
           set -e
           echo "Building SIFs into: $SIF_DIR"
@@ -103,8 +123,23 @@ jobs:
           apptainer build "$SIF_DIR/ui.sif" docker-daemon:ezbids-ui:latest
           df -h
           apptainer cache clean -f || true
+
+          # Optionally also pre-build MongoDB SIF so it's part of the cache
+          if [ ! -e "$SIF_DIR/mongodb.sif" ]; then
+            apptainer build "$SIF_DIR/mongodb.sif" docker://mongo:4.4.15
+            apptainer cache clean -f || true
+          fi
+
+          echo "SIFs created:"
+          ls -lah "$SIF_DIR"
         working-directory: ./apptainer
-        
+
+      - name: Using cached SIFs (no build performed)
+        if: steps.cache-sifs.outputs.cache-hit == 'true'
+        run: |
+          echo "Using cached SIFs from $SIF_DIR"
+          ls -lah "$SIF_DIR"
+
       - name: Free up disk space
         run: |
           sudo docker system prune -af || true
@@ -132,7 +167,7 @@ jobs:
             apptainer cache clean -f || true
           fi
           # Start MongoDB in background
-          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" --bind "$EZBIDS_DIR/tmp/data:/data" "$SIF_DIR/mongodb.sif" bash -c "mongod --dbpath /data/ --nounixsocket" > mongo.log 2>&1 &
+          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" --bind "$EZBIDS_DIR/tmp/data:/data" "$SIF_DIR/mongodb.sif" bash -c "mongod --dbpath /data/ --nounixsocket" > mon[...]
           # Wait for MongoDB to be ready
           for i in {1..20}; do
             if apptainer exec "$SIF_DIR/mongodb.sif" bash -c "echo 'db.runCommand(\"ping\").ok' | mongo localhost:27017/test --quiet" | grep -q 1; then
@@ -149,7 +184,7 @@ jobs:
       - name: Start API in Apptainer
         run: |
           set -e
-          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/api.sif" ./start_api.sh > api.log 2>&1 &
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/api.sif" [...]
           for i in {1..100}; do
             if curl -fs http://localhost:8082/health; then
               echo "API is ready."
@@ -175,7 +210,7 @@ jobs:
       - name: Start Handler in Apptainer
         run: |
           set -e
-          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/handler.sif" ./start_handler.sh > handler.log 2>&1 &
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/handl[...]
           sleep 10
           echo "Handler log (last 40 lines):"
           tail -n 40 handler.log || true
@@ -208,11 +243,10 @@ jobs:
             "
         working-directory: ./apptainer
 
-
       - name: Start UI in Apptainer
         run: |
           set -e
-          apptainer exec --env "VITE_APIHOST=http://$SERVER_NAME:8082" --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" bash -c "bash -c "cd ../ui && node_modules/.bin/vite --host" > ui.log 2>&1" &
+          apptainer exec --env "VITE_APIHOST=http://$SERVER_NAME:8082" --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" bash -c "cd ../ui && npm run dev"
           for i in {1..100}; do
             if curl -fs http://localhost:3000 >/dev/null; then
               echo "UI is ready."
