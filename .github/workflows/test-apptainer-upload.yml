@@ -136,8 +136,13 @@ jobs:
               exit 0
             fi
             echo "API not ready, retrying in 5s..."
+            echo "Output of curl -fs http://localhost:8082/health:"
+            curl -v http://localhost:8082/health || true
             echo "---- API log (last 40 lines) ----"
             tail -n 40 api.log || true
+            echo "---------------------------------"
+            echo "---- DB log (last 40 lines) ----"
+            tail -n 40 mongo.log || true
             echo "---------------------------------"
             sleep 5
           done
