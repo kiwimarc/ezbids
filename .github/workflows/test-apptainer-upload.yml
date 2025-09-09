@@ -165,6 +165,13 @@ jobs:
           tail -n 40 handler.log || true
         working-directory: ./apptainer
 
+      - name: Debug UI container
+        run: |
+          apptainer exec ui.sif node -v
+          apptainer exec ui.sif uname -a
+          apptainer exec ui.sif npm list esbuild
+          apptainer exec ui.sif node -p "require('esbuild').version"
+
       - name: Start UI in Apptainer
         run: |
           set -e
