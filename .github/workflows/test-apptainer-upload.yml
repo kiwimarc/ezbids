@@ -87,7 +87,6 @@ jobs:
         run: |
           set -e
           bash build.sh
-        working-directory: ./apptainer
 
       # We no longer export Docker images to tar to avoid duplicating multi-GB archives
 
