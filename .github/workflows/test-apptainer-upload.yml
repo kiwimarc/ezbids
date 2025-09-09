@@ -93,8 +93,11 @@ jobs:
         run: |
           set -e
           apptainer build api.sif docker-archive:api_image.tar
+          df -h
           apptainer build handler.sif docker-archive:handler_image.tar
+          df -h
           apptainer build ui.sif docker-archive:ui_image.tar
+          df -h
           # apptainer build telemetry.sif docker-archive:telemetry_image.tar
         working-directory: ./apptainer
 
