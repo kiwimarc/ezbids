@@ -10,9 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Put heavy Apptainer I/O on the large /mnt volume
-      APPTAINER_CACHEDIR: /mnt/ezbids-apptainer-cache
       APPTAINER_TMPDIR: /mnt/ezbids-apptainer-tmp
-      TMPDIR: /mnt/ezbids-apptainer-tmp
       SIF_DIR: /mnt/ezbids-sif
       # Useful elsewhere
       DOCKER_BUILDKIT: "1"
@@ -25,8 +23,8 @@ jobs:
 
       - name: Prepare larger /mnt storage for Apptainer
         run: |
-          sudo mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR" "$SIF_DIR"
-          sudo chown -R $USER:$USER "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR" "$SIF_DIR"
+          sudo mkdir -p "$APPTAINER_TMPDIR" "$SIF_DIR"
+          sudo chown -R $USER:$USER "$APPTAINER_TMPDIR" "$SIF_DIR"
           echo "EZBIDS_DIR=${GITHUB_WORKSPACE}" >> $GITHUB_ENV
           df -h
 
@@ -165,7 +163,7 @@ jobs:
             apptainer build "$SIF_DIR/mongodb.sif" docker://mongo:4.4.15
             apptainer cache clean -f || true
           fi
-          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" --bind "$EZBIDS_DIR/tmp/data:/data" "$SIF_DIR/mongodb.sif" bash -c "mongod --dbpath /data/ --nounixsocket" > mongo.log 2>&1 &
+          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$APPTAINER_TMPDIR:/tmp" --bind "$APPTAINER_TMPDIR/data:/data" "$SIF_DIR/mongodb.sif" bash -c "mongod --dbpath /data/ --nounixsocket" > mongo.log 2>&1 &
           # Wait for MongoDB to be ready
           for i in {1..20}; do
             if apptainer exec "$SIF_DIR/mongodb.sif" bash -c "echo 'db.runCommand(\"ping\").ok' | mongo localhost:27017/test --quiet" | grep -q 1; then
@@ -182,7 +180,7 @@ jobs:
       - name: Start API in Apptainer
         run: |
           set -e
-          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/api.sif" ./start_api.sh > api.log 2>&1 &
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$APPTAINER_TMPDIR:/tmp" "$SIF_DIR/api.sif" ./start_api.sh > api.log 2>&1 &
           for i in {1..10}; do
             if curl -fs http://localhost:8082/health; then
               echo "API is ready."
@@ -208,37 +206,10 @@ jobs:
       - name: Start Handler in Apptainer
         run: |
           set -e
-          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/handler.sif" ./start_handler.sh > handler.log 2>&1 &
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$APPTAINER_TMPDIR:/tmp" "$SIF_DIR/handler.sif" ./start_handler.sh > handler.log 2>&1 &
           sleep 10
           echo "Handler log (last 40 lines):"
           tail -n 40 handler.log || true
-        working-directory: ./apptainer
-
-      - name: Debug environment before UI start (inside container)
-        run: |
-          apptainer exec \
-            --env "VITE_APIHOST=http://$SERVER_NAME:8082" \
-            --bind "$EZBIDS_DIR:$EZBIDS_DIR" \
-            "$SIF_DIR/ui.sif" \
-            bash -c "
-              echo 'Node version:'
-              node --version
-              echo 'NPM version:'
-              npm --version
-              echo 'Disk usage:'
-              df -h
-              echo 'Free memory:'
-              free -h || true
-              echo 'Listing UI dir:'
-              ls -lah ../ui
-              echo 'Listing node_modules in UI:'
-              ls -lah ../ui/node_modules | head -40
-              echo 'Test writing to UI:'
-              echo hello > ../ui/write-test.txt
-              cat ../ui/write-test.txt
-              echo 'Checking .env:'
-              cat .env
-            "
         working-directory: ./apptainer
 
       - name: Start UI in Apptainer
@@ -251,14 +222,9 @@ jobs:
               exit 0
             fi
             echo "UI not ready, retrying in 5s..."
-            echo "---- UI log (last 40 lines) ----"
-            tail -n 40 ui.log || true
-            echo "--------------------------------"
             sleep 5
           done
           echo "UI failed health check."
-          echo "Final UI log (last 100 lines):"
-          tail -n 100 ui.log || true
           exit 1
         working-directory: ./apptainer
 
