@@ -88,15 +88,6 @@ jobs:
           set -e
           bash build.sh
 
-      # We no longer export Docker images to tar to avoid duplicating multi-GB archives
-
-      - name: Free up disk space before conversion
-        run: |
-          sudo docker system prune -af || true
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup || true
-          sudo apt-get clean
-          df -h
-
       - name: Convert Docker images to SIF (write to /mnt)
         run: |
           set -e
@@ -114,6 +105,13 @@ jobs:
           df -h
           apptainer cache clean -a || true
         working-directory: ./apptainer
+        
+      - name: Free up disk space
+        run: |
+          sudo docker system prune -af || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup || true
+          sudo apt-get clean
+          df -h
 
       - name: Set up environment
         run: |
