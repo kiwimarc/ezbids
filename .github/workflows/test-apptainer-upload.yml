@@ -262,5 +262,19 @@ jobs:
           exit 1
         working-directory: ./apptainer
 
+      - name: Cache test data
+        uses: actions/cache@v4
+        id: test-data-cache
+        with:
+          path: test/test_data
+          key: test-data-${{ hashFiles('.gitmodules') }}
+          restore-keys: |
+            test-data-
+
+      - name: Get test data if not cached
+        if: steps.test-data-cache.outputs.cache-hit != 'true'
+        run: |
+          make get-test-data
+
       - name: Run upload test
         run: make test-upload
