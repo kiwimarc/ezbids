@@ -212,6 +212,7 @@ jobs:
       - name: Start UI in Apptainer
         run: |
           set -e
+          apptainer exec --env "VITE_APIHOST=http://$SERVER_NAME:8082" --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" bash -c "cd ../ui && rm -rf node_modules && npm install"
           apptainer exec --env "VITE_APIHOST=http://$SERVER_NAME:8082" --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" bash -c "./start_ui.sh > ui.log 2>&1 &"
           for i in {1..100}; do
             if curl -fs http://localhost:3000 >/dev/null; then
