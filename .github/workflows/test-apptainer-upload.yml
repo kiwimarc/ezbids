@@ -165,8 +165,7 @@ jobs:
             apptainer build "$SIF_DIR/mongodb.sif" docker://mongo:4.4.15
             apptainer cache clean -f || true
           fi
-          # Start MongoDB in background
-          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" --bind "$EZBIDS_DIR/tmp/data:/data" "$SIF_DIR/mongodb.sif" bash -c "mongod --dbpath /data/ --nounixsocket" > mon[...]
+          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" --bind "$EZBIDS_DIR/tmp/data:/data" "$SIF_DIR/mongodb.sif" bash -c "mongod --dbpath /data/ --nounixsocket" > mongo.log 2>&1 &
           # Wait for MongoDB to be ready
           for i in {1..20}; do
             if apptainer exec "$SIF_DIR/mongodb.sif" bash -c "echo 'db.runCommand(\"ping\").ok' | mongo localhost:27017/test --quiet" | grep -q 1; then
@@ -183,8 +182,8 @@ jobs:
       - name: Start API in Apptainer
         run: |
           set -e
-          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/api.sif" [...]
-          for i in {1..100}; do
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/api.sif" ./start_api.sh > api.log 2>&1 &
+          for i in {1..10}; do
             if curl -fs http://localhost:8082/health; then
               echo "API is ready."
               exit 0
@@ -209,7 +208,7 @@ jobs:
       - name: Start Handler in Apptainer
         run: |
           set -e
-          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/handl[...]
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/handler.sif" ./start_handler.sh > handler.log 2>&1 &
           sleep 10
           echo "Handler log (last 40 lines):"
           tail -n 40 handler.log || true
@@ -246,7 +245,7 @@ jobs:
         run: |
           set -e
           apptainer exec --env "VITE_APIHOST=http://$SERVER_NAME:8082" --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" bash -c "cd ../ui && npm run dev"
-          for i in {1..100}; do
+          for i in {1..10}; do
             if curl -fs http://localhost:3000 >/dev/null; then
               echo "UI is ready."
               exit 0
