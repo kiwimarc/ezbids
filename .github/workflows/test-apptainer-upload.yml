@@ -8,10 +8,25 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    env:
+      # Put heavy Apptainer I/O on the large /mnt volume
+      APPTAINER_CACHEDIR: /mnt/ezbids-apptainer-cache
+      APPTAINER_TMPDIR: /mnt/ezbids-apptainer-tmp
+      TMPDIR: /mnt/ezbids-apptainer-tmp
+      SIF_DIR: /mnt/ezbids-sif
+      # Useful elsewhere
+      DOCKER_BUILDKIT: "1"
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Prepare larger /mnt storage for Apptainer
+        run: |
+          sudo mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR" "$SIF_DIR"
+          sudo chown -R $USER:$USER "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR" "$SIF_DIR"
+          echo "EZBIDS_DIR=${GITHUB_WORKSPACE}" >> $GITHUB_ENV
+          df -h
 
       - name: Project environment preparation (mimic dev_apptainer.sh)
         run: |
@@ -72,36 +87,33 @@ jobs:
         run: |
           set -e
           bash build.sh
-
-      - name: Export Docker images
-        run: |
-          set -e
-          docker save -o api_image.tar ezbids-api
-          docker save -o handler_image.tar ezbids-handler
-          docker save -o ui_image.tar ezbids-ui
-          # docker save -o telemetry_image.tar ezbids-telemetry
         working-directory: ./apptainer
-        
-      - name: Free up disk space
+
+      # We no longer export Docker images to tar to avoid duplicating multi-GB archives
+
+      - name: Free up disk space before conversion
         run: |
           sudo docker system prune -af || true
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup || true
           sudo apt-get clean
           df -h
-          
-      - name: Convert Docker images to SIF
+
+      - name: Convert Docker images to SIF (write to /mnt)
         run: |
           set -e
-          apptainer build api.sif docker-archive:api_image.tar
-          rm api_image.tar
+          echo "Building SIFs into: $SIF_DIR"
+          apptainer build "$SIF_DIR/api.sif" docker-daemon:ezbids-api:latest
           df -h
-          apptainer build handler.sif docker-archive:handler_image.tar
-          rm handler_image.tar
+          # Clean cache between builds to minimize peak usage
+          apptainer cache clean -a || true
+
+          apptainer build "$SIF_DIR/handler.sif" docker-daemon:ezbids-handler:latest
           df -h
-          apptainer build ui.sif docker-archive:ui_image.tar
-          rm handler_image.tar
+          apptainer cache clean -a || true
+
+          apptainer build "$SIF_DIR/ui.sif" docker-daemon:ezbids-ui:latest
           df -h
-          # apptainer build telemetry.sif docker-archive:telemetry_image.tar
+          apptainer cache clean -a || true
         working-directory: ./apptainer
 
       - name: Set up environment
@@ -109,6 +121,7 @@ jobs:
           set -a
           source ./apptainer/.env
           echo "EZBIDS_DIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+          echo "SIF_DIR=$SIF_DIR" >> $GITHUB_ENV
           echo "---- Loaded Environment Variables ----"
           env | sort
           echo "-------------------------------------"
@@ -118,14 +131,15 @@ jobs:
         run: |
           set -e
           # Build if missing
-          if [ ! -e "mongodb.sif" ]; then
-            apptainer build mongodb.sif docker://mongo:4.4.15
+          if [ ! -e "$SIF_DIR/mongodb.sif" ]; then
+            apptainer build "$SIF_DIR/mongodb.sif" docker://mongo:4.4.15
+            apptainer cache clean -a || true
           fi
           # Start MongoDB in background
-          apptainer exec --bind $EZBIDS_DIR:$EZBIDS_DIR --bind $EZBIDS_DIR/tmp:/tmp --bind $EZBIDS_DIR/tmp/data:/data mongodb.sif bash -c "mongod --dbpath /data/ --nounixsocket" > mongo.log 2>&1 &
+          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" --bind "$EZBIDS_DIR/tmp/data:/data" "$SIF_DIR/mongodb.sif" bash -c "mongod --dbpath /data/ --nounixsocket" > mongo.log 2>&1 &
           # Wait for MongoDB to be ready
           for i in {1..20}; do
-            if apptainer exec mongodb.sif bash -c "echo 'db.runCommand(\"ping\").ok' | mongo localhost:27017/test --quiet" | grep -q 1; then
+            if apptainer exec "$SIF_DIR/mongodb.sif" bash -c "echo 'db.runCommand(\"ping\").ok' | mongo localhost:27017/test --quiet" | grep -q 1; then
               echo "MongoDB is ready."
               exit 0
             fi
@@ -139,7 +153,7 @@ jobs:
       - name: Start API in Apptainer
         run: |
           set -e
-          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind $EZBIDS_DIR:$EZBIDS_DIR --bind $EZBIDS_DIR/tmp:/tmp  api.sif ./start_api.sh > api.log 2>&1 &
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/api.sif" ./start_api.sh
           for i in {1..100}; do
             if curl -fs http://localhost:8082/health; then
               echo "API is ready."
@@ -165,7 +179,7 @@ jobs:
       - name: Start Handler in Apptainer
         run: |
           set -e
-          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind $EZBIDS_DIR:$EZBIDS_DIR --bind $EZBIDS_DIR/tmp:/tmp  handler.sif ./start_handler.sh > handler.log 2>&1 &
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$EZBIDS_DIR/tmp:/tmp" "$SIF_DIR/handler.sif" ./start_handler.sh
           sleep 10
           echo "Handler log (last 40 lines):"
           tail -n 40 handler.log || true
@@ -173,16 +187,16 @@ jobs:
 
       - name: Debug UI container
         run: |
-          apptainer exec --bind $EZBIDS_DIR:$EZBIDS_DIR ui.sif node -v
-          apptainer exec --bind $EZBIDS_DIR:$EZBIDS_DIR ui.sif uname -a
-          apptainer exec --bind $EZBIDS_DIR:$EZBIDS_DIR ui.sif npm list esbuild
-          apptainer exec --bind $EZBIDS_DIR:$EZBIDS_DIR ui.sif node -p "require('esbuild').version"
+          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" node -v
+          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" uname -a
+          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" npm list esbuild
+          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" node -p "require('esbuild').version"
         working-directory: ./apptainer
 
       - name: Start UI in Apptainer
         run: |
           set -e
-          apptainer exec --env "VITE_APIHOST=http://$SERVER_NAME:8082" --bind $EZBIDS_DIR:$EZBIDS_DIR ui.sif bash -c "./start_ui.sh > ui.log 2>&1 &"
+          apptainer exec --env "VITE_APIHOST=http://$SERVER_NAME:8082" --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" bash -c "./start_ui.sh > ui.log 2>&1 &"
           for i in {1..100}; do
             if curl -fs http://localhost:3000 >/dev/null; then
               echo "UI is ready."
@@ -199,6 +213,13 @@ jobs:
           tail -n 100 ui.log || true
           exit 1
         working-directory: ./apptainer
+
+      - name: Free up disk space after conversion (optional)
+        run: |
+          sudo docker system prune -af || true
+          apptainer cache clean -a || true
+          rm -rf "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR" || true
+          df -h
 
       - name: Run upload test
         run: make test-upload
