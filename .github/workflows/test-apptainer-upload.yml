@@ -254,7 +254,7 @@ jobs:
       - name: Debug
         uses: mxschmitt/action-tmate@v3
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
-        timeout-minutes: 15
+        timeout-minutes: 360
         with:
           limit-access-to-actor: true
 
