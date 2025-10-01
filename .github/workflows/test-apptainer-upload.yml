@@ -4,27 +4,259 @@ on:
   push:
     branches:
       - openneuropet_apptainer
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Run the build with tmate debugging enabled'
+        required: false
+        default: false
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    env:
+      # Put heavy Apptainer I/O on the large /mnt volume
+      APPTAINER_TMPDIR: /mnt/ezbids-apptainer-tmp
+      SIF_DIR: /mnt/ezbids-sif
+      # Useful elsewhere
+      DOCKER_BUILDKIT: "1"
+      # Bump this to invalidate SIF cache manually if needed
+      SIF_CACHE_VERSION: v1
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run apptainer scripts
+      - name: Prepare larger /mnt storage for Apptainer
         run: |
-          set -e
-          bash apptainer/create_sif_images.sh
-          bash apptainer/run_apptainer.sh
+          sudo mkdir -p "$APPTAINER_TMPDIR" "$SIF_DIR"
+          sudo chown -R $USER:$USER "$APPTAINER_TMPDIR" "$SIF_DIR"
+          echo "EZBIDS_DIR=${GITHUB_WORKSPACE}" >> $GITHUB_ENV
+          
+          # check if required dir exists
+          required_dirs=("$APPTAINER_TMPDIR/data" "$APPTAINER_TMPDIR/ezbids-workdir" "$APPTAINER_TMPDIR/upload" "$APPTAINER_TMPDIR/workdir")
+          for dir in "${required_dirs[@]}"; do
+              if [ ! -d "$dir" ]; then
+                  echo "Creating: $dir"
+                  mkdir -p "$dir"
+              fi
+          done
+          df -h
+          
+
+      - name: Restore SIF cache
+        id: cache-sifs
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SIF_DIR }}
+          key: sif-${{ env.SIF_CACHE_VERSION }}-${{ runner.os }}-${{ hashFiles('apptainer/build.sh', 'apptainer/**/Dockerfile', 'apptainer/*.def', 'api/package.json', 'api/package-lock.json', 'ui/package.json', 'ui/package-lock.json') }}
+          restore-keys: |
+            sif-${{ env.SIF_CACHE_VERSION }}-${{ runner.os }}-
+            sif-${{ runner.os }}-
+
+      - name: Report SIF cache status
+        run: |
+          echo "Cache hit: ${{ steps.cache-sifs.outputs.cache-hit }}"
+          ls -lah "$SIF_DIR" || true
+
+      - name: Project environment preparation (mimic dev_apptainer.sh)
+        run: |
+          set -ex
+          cd ..
+          # check to see if a .env file exists
+          if [ -f apptainer/.env ]; then
+              echo ".env file exists, loading environment variables from .env file"
+          else
+              echo ".env file does not exist, copying example.env to .env"
+              cp example.env apptainer/.env
+          fi
+
+          # Ensure SERVER_NAME=localhost exists in .env
+          if ! grep -q "^SERVER_NAME=" apptainer/.env; then
+               echo "SERVER_NAME=localhost" >> apptainer/.env
+               echo "Added SERVER_NAME=localhost to .env"
+          fi
+
+          echo "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" >> ./apptainer/.env
+
+          # Install dependencies for api and ui
+          npm install npm@9.5.1 pm2 typescript tsc-watch
+          (cd api && npm install)
+          (cd ui && npm install)
+
+          # Generate keys (assuming this is a necessary setup step)
+          ./generate_keys.sh
+
+          (cd ui && chmod +x ./entrypoint.sh && ls -l)
+
+        shell: bash
+        working-directory: ./apptainer
+
+      - name: Install Apptainer from PPA
+        run: |
+          sudo apt update
+          sudo apt install -y software-properties-common
+          sudo add-apt-repository -y ppa:apptainer/ppa
+          sudo apt update
+          sudo apt install -y apptainer
 
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Verify uv installation
-        run: uv --version
+      - name: Build container images
+        if: steps.cache-sifs.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          bash build.sh
+
+      - name: Convert Docker images to SIF (write to /mnt)
+        if: steps.cache-sifs.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          echo "Building SIFs into: $SIF_DIR"
+          apptainer build "$SIF_DIR/api.sif" docker-daemon:ezbids-api:latest
+          df -h
+          apptainer cache clean -f || true
+
+          apptainer build "$SIF_DIR/handler.sif" docker-daemon:ezbids-handler:latest
+          df -h
+          apptainer cache clean -f || true
+
+          apptainer build "$SIF_DIR/ui.sif" docker-daemon:ezbids-ui:latest
+          df -h
+          apptainer cache clean -f || true
+
+          # Optionally also pre-build MongoDB SIF so it's part of the cache
+          if [ ! -e "$SIF_DIR/mongodb.sif" ]; then
+            apptainer build "$SIF_DIR/mongodb.sif" docker://mongo:4.4.15
+            apptainer cache clean -f || true
+          fi
+
+          echo "SIFs created:"
+          ls -lah "$SIF_DIR"
+        working-directory: ./apptainer
+
+      - name: Using cached SIFs (no build performed)
+        if: steps.cache-sifs.outputs.cache-hit == 'true'
+        run: |
+          echo "Using cached SIFs from $SIF_DIR"
+          ls -lah "$SIF_DIR"
+
+      - name: Free up disk space
+        run: |
+          sudo docker system prune -af || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup || true
+          sudo apt-get clean
+          df -h
+
+      - name: Set up environment
+        run: |
+          set -a
+          source ./apptainer/.env
+          echo "EZBIDS_DIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+          echo "SIF_DIR=$SIF_DIR" >> $GITHUB_ENV
+          echo "---- Loaded Environment Variables ----"
+          env | sort
+          echo "-------------------------------------"
+          set +a
+
+      - name: Start MongoDB in Apptainer
+        run: |
+          set -e
+          # Build if missing
+          if [ ! -e "$SIF_DIR/mongodb.sif" ]; then
+            apptainer build "$SIF_DIR/mongodb.sif" docker://mongo:4.4.15
+            apptainer cache clean -f || true
+          fi
+          apptainer exec --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$APPTAINER_TMPDIR:/tmp" --bind "$APPTAINER_TMPDIR/data:/data" "$SIF_DIR/mongodb.sif" bash -c "mongod --dbpath /data/ --nounixsocket" > mongo.log 2>&1 &
+          # Wait for MongoDB to be ready
+          for i in {1..20}; do
+            if apptainer exec "$SIF_DIR/mongodb.sif" bash -c "echo 'db.runCommand(\"ping\").ok' | mongo localhost:27017/test --quiet" | grep -q 1; then
+              echo "MongoDB is ready."
+              exit 0
+            fi
+            echo "MongoDB not ready, retrying in 5s..."
+            sleep 5
+          done
+          echo "MongoDB failed health check."
+          exit 1
+        working-directory: ./apptainer
+
+      - name: Start API in Apptainer
+        run: |
+          set -e
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.api" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$APPTAINER_TMPDIR:/tmp" "$SIF_DIR/api.sif" ./start_api.sh > api.log 2>&1 &
+          for i in {1..10}; do
+            if curl -fs http://localhost:8082/health; then
+              echo "API is ready."
+              exit 0
+            fi
+            echo "API not ready, retrying in 5s..."
+            echo "Output of curl -fs http://localhost:8082/health:"
+            curl -v http://localhost:8082/health || true
+            echo "---- API log (last 40 lines) ----"
+            tail -n 40 api.log || true
+            echo "---------------------------------"
+            echo "---- DB log (last 40 lines) ----"
+            tail -n 40 mongo.log || true
+            echo "---------------------------------"
+            sleep 5
+          done
+          echo "API failed health check."
+          echo "Final API log (last 100 lines):"
+          tail -n 100 api.log || true
+          exit 1
+        working-directory: ./apptainer
+
+      - name: Start Handler in Apptainer
+        run: |
+          set -e
+          apptainer exec --env "MONGO_CONNECTION_STRING=mongodb://localhost:27017/ezbids" --env "PM2_HOME=$HOME/.handler" --bind "$EZBIDS_DIR:$EZBIDS_DIR" --bind "$APPTAINER_TMPDIR:/tmp" "$SIF_DIR/handler.sif" ./start_handler.sh > handler.log 2>&1 &
+          sleep 10
+          echo "Handler log (last 40 lines):"
+          tail -n 40 handler.log || true
+        working-directory: ./apptainer
+
+      - name: Start UI in Apptainer
+        run: |
+          set -e
+          apptainer exec --env "VITE_APIHOST=http://$SERVER_NAME:8082" --bind "$EZBIDS_DIR:$EZBIDS_DIR" "$SIF_DIR/ui.sif" bash -c "cd ../ui && npm run dev" &
+          for i in {1..10}; do
+            if curl -fs http://localhost:3000 >/dev/null; then
+              echo "UI is ready."
+              exit 0
+            fi
+            echo "UI not ready, retrying in 5s..."
+            sleep 5
+          done
+          echo "UI failed health check."
+          exit 1
+        working-directory: ./apptainer
+
+      - name: Cache test data
+        uses: actions/cache@v4
+        id: test-data-cache
+        with:
+          path: test/test_data
+          key: test-data-${{ hashFiles('.gitmodules') }}
+          restore-keys: |
+            test-data-
+
+      - name: Get test data if not cached
+        if: steps.test-data-cache.outputs.cache-hit != 'true'
+        run: |
+          make get-test-data
+
+      
+      - name: Debug
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
+        timeout-minutes: 360
+        with:
+          limit-access-to-actor: true
 
       - name: Run upload test
         run: make test-upload
