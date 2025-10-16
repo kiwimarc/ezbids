@@ -118,15 +118,15 @@ jobs:
         run: |
           set -e
           echo "Building SIFs into: $SIF_DIR"
-          apptainer build "$SIF_DIR/api.sif" docker-daemon:ezbids-api:latest
+          apptainer build "$SIF_DIR/api.sif" docker-daemon:openneuropet/ezbids-api:latest
           df -h
           apptainer cache clean -f || true
 
-          apptainer build "$SIF_DIR/handler.sif" docker-daemon:ezbids-handler:latest
+          apptainer build "$SIF_DIR/handler.sif" docker-daemon:openneuropet/ezbids-handler:latest
           df -h
           apptainer cache clean -f || true
 
-          apptainer build "$SIF_DIR/ui.sif" docker-daemon:ezbids-ui:latest
+          apptainer build "$SIF_DIR/ui.sif" docker-daemon:openneuropet/ezbids-ui:latest
           df -h
           apptainer cache clean -f || true
 
